@@ -94,9 +94,8 @@ const ProfileStack = () => {
       }}
     >
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
-      <Stack.Screen name="EmergencyContacts" component={EmergencyContactsScreen} />
-      <Stack.Screen name="HealthGoals" component={HealthGoalsScreen} />
-      <Stack.Screen name="Reminders" component={RemindersScreen} />
+      {/* <Stack.Screen name="HealthGoals" component={HealthGoalsScreen} /> */}
+      {/* <Stack.Screen name="Reminders" component={RemindersScreen} /> */}
     </Stack.Navigator>
   );
 };
@@ -105,6 +104,7 @@ const ProfileStack = () => {
 const AppNavigator = () => {
   return (
     <Tab.Navigator
+      initialRouteName="Chat"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: COLORS.primary,

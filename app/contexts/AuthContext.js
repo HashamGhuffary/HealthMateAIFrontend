@@ -85,8 +85,9 @@ export const AuthProvider = ({ children }) => {
       await SecureStore.setItemAsync('auth_token', tokens.access);
       await SecureStore.setItemAsync('refresh_token', tokens.refresh);
       
+      // Make sure to set the user state
       setUser(user);
-      return user;
+      return { user, tokens };
     } catch (error) {
       console.error('Registration failed', error);
       const errorMessages = error.response?.data || {};

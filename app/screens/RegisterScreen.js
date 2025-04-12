@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { 
   View, 
   Text, 
@@ -13,10 +13,10 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { COLORS, SPACING } from '../theme/global';
-import { authService } from '../api/apiService';
-import * as SecureStore from 'expo-secure-store';
+import { AuthContext } from '../contexts/AuthContext';
 
 const RegisterScreen = ({ navigation }) => {
+  const { register } = useContext(AuthContext);
   const [formData, setFormData] = useState({
     email: '',
     username: '',
@@ -103,19 +103,11 @@ const RegisterScreen = ({ navigation }) => {
           age: formData.age ? parseInt(formData.age) : null
         };
 
-        // Call the register endpoint from authService
-        const response = await authService.register(userData);
+        // Use the register function from AuthContext
+        await register(userData);
         
-        // Store tokens in SecureStore
-        await SecureStore.setItemAsync('auth_token', response.data.tokens.access);
-        await SecureStore.setItemAsync('refresh_token', response.data.tokens.refresh);
-        
-        // Navigate to the main app screen without showing the alert
-        // This gives a better user experience
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'App' }]
-        });
+        // No need to manually navigate - the AuthContext user state change
+        // will trigger RootNavigator to switch to the App stack automatically
       } catch (error) {
         console.error('Registration error:', error);
         let errorMessage = 'An error occurred during registration.';
