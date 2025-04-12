@@ -2,7 +2,7 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
 // Base API URL - Change in production
-const API_URL = 'http://192.168.18.55:8000/api';
+const API_URL = 'https://healthmateai-46c8fe235a7a.herokuapp.com/api';
 
 // Create axios instance
 const api = axios.create({
