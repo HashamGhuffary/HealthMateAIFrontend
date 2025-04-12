@@ -16,9 +16,8 @@ import DoctorProfileScreen from '../screens/DoctorProfileScreen';
 import AppointmentScreen from '../screens/AppointmentScreen';
 import DiagnosisScreen from '../screens/DiagnosisScreen';
 import TreatmentScreen from '../screens/TreatmentScreen';
-import EmergencyContactsScreen from '../screens/EmergencyContactsScreen';
-import HealthGoalsScreen from '../screens/HealthGoalsScreen';
-import RemindersScreen from '../screens/RemindersScreen';
+
+
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
