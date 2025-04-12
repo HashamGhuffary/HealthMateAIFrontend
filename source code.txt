@@ -1,0 +1,1951 @@
+App.js
+import React from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { AuthProvider } from './app/contexts/AuthContext';
+import RootNavigator from './app/navigation/RootNavigator';
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <StatusBar style="auto" />
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </SafeAreaProvider>
+  );
+}
+
+app/navigation/RootNavigator.js
+import React, { useEffect, useState } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import AppNavigator from './AppNavigator';
+import AuthNavigator from './AuthNavigator';
+import { COLORS } from '../theme/global';
+import { useAuth } from '../contexts/AuthContext';
+
+const Stack = createStackNavigator();
+
+const RootNavigator = () => {
+  const { user, isLoading } = useAuth();
+  const [initializing, setInitializing] = useState(true);
+
+  useEffect(() => {
+    async function checkFirstLaunch() {
+      try {
+        const hasLaunched = await SecureStore.getItemAsync('has_launched');
+        if (hasLaunched !== 'true') {
+          await SecureStore.setItemAsync('has_launched', 'true');
+        }
+      } catch (error) {
+        console.error('Error checking first launch:', error);
+      } finally {
+        setInitializing(false);
+      }
+    }
+    checkFirstLaunch();
+  }, []);
+
+  if (isLoading || initializing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {user ? (
+          <Stack.Screen name="App" component={AppNavigator} />
+        ) : (
+          <Stack.Screen name="Auth" component={AuthNavigator} />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+};
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+  },
+});
+
+export default RootNavigator;
+
+app/contexts/AuthContext.js
+import React, { createContext, useState, useEffect, useContext } from 'react';
+import * as SecureStore from 'expo-secure-store';
+import { authService } from '../api/apiService';
+
+export const AuthContext = createContext();
+
+export const useAuth = () => {
+  return useContext(AuthContext);
+};
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadUser();
+  }, []);
+
+  const loadUser = async () => {
+    setIsLoading(true);
+    try {
+      const token = await SecureStore.getItemAsync('auth_token');
+      if (token) {
+        await fetchUserProfile();
+      }
+    } catch (error) {
+      console.error('Failed to load user', error);
+      setError('Failed to load user data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchUserProfile = async () => {
+    try {
+      const response = await authService.getProfile();
+      setUser(response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch user profile', error);
+      await logout();
+      throw error;
+    }
+  };
+
+  const login = async (email, password) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await authService.login(email, password);
+      const { user, tokens } = response.data;
+      await SecureStore.setItemAsync('auth_token', tokens.access);
+      await SecureStore.setItemAsync('refresh_token', tokens.refresh);
+      setUser(user);
+      return user;
+    } catch (error) {
+      console.error('Login failed', error);
+      const errorMessage = error.response?.data?.detail || 'Login failed. Please check your credentials.';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const register = async (userData) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await authService.register(userData);
+      const { user, tokens } = response.data;
+      await SecureStore.setItemAsync('auth_token', tokens.access);
+      await SecureStore.setItemAsync('refresh_token', tokens.refresh);
+      setUser(user);
+      return user;
+    } catch (error) {
+      console.error('Registration failed', error);
+      const errorMessages = error.response?.data || {};
+      const formattedError = Object.keys(errorMessages)
+        .map(key => `${key}: ${errorMessages[key].join(', ')}`)
+        .join('\n');
+      setError(formattedError || 'Registration failed. Please try again.');
+      throw new Error(formattedError || 'Registration failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const updateProfile = async (userData) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await authService.updateProfile(userData);
+      setUser(response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Update profile failed', error);
+      const errorMessages = error.response?.data || {};
+      const formattedError = Object.keys(errorMessages)
+        .map(key => `${key}: ${errorMessages[key].join(', ')}`)
+        .join('\n');
+      setError(formattedError || 'Profile update failed. Please try again.');
+      throw new Error(formattedError || 'Profile update failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    setIsLoading(true);
+    try {
+      await SecureStore.deleteItemAsync('auth_token');
+      await SecureStore.deleteItemAsync('refresh_token');
+      setUser(null);
+    } catch (error) {
+      console.error('Logout failed', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const authContextValue = {
+    user,
+    isLoading,
+    error,
+    login,
+    register,
+    logout,
+    updateProfile,
+    refreshUser: fetchUserProfile,
+  };
+
+  return (
+    <AuthContext.Provider value={authContextValue}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+app/api/apiService.js
+import axios from 'axios';
+import * as SecureStore from 'expo-secure-store';
+
+const API_URL = 'http://192.168.18.55:8000/api';
+
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+api.interceptors.request.use(
+  async (config) => {
+    try {
+      const token = await SecureStore.getItemAsync('auth_token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.error('Failed to get auth token', error);
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      try {
+        const refreshToken = await SecureStore.getItemAsync('refresh_token');
+        if (!refreshToken) {
+          throw new Error('No refresh token available');
+        }
+        const response = await axios.post(`${API_URL}/auth/token/refresh/`, {
+          refresh: refreshToken
+        });
+        const { access, refresh } = response.data;
+        await SecureStore.setItemAsync('auth_token', access);
+        if (refresh) {
+          await SecureStore.setItemAsync('refresh_token', refresh);
+        }
+        api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
+        originalRequest.headers['Authorization'] = `Bearer ${access}`;
+        return api(originalRequest);
+      } catch (refreshError) {
+        await SecureStore.deleteItemAsync('auth_token');
+        await SecureStore.deleteItemAsync('refresh_token');
+        console.error('Token refresh failed, redirect to login');
+        return Promise.reject(refreshError);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export const authService = {
+  login: (email, password) => api.post('/auth/login/', { email, password }),
+  register: (userData) => api.post('/auth/register/', userData),
+  getProfile: () => api.get('/auth/profile/'),
+  updateProfile: (userData) => api.patch('/auth/profile/', userData),
+};
+
+export const chatService = {
+  sendMessage: async (message) => {
+    try {
+      const response = await api.post('/chat/chat/', { message });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  getChatHistory: async () => {
+    try {
+      const response = await api.get('/chat/history/');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  getUserSymptoms: async () => {
+    try {
+      const response = await api.get('/symptoms/user-symptoms/');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  getRecentSymptomChecks: async () => {
+    try {
+      const response = await api.get('/symptoms/checks/recent/');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+};
+
+export const doctorService = {
+  getDoctors: (filters = {}) => api.get('/doctors/', { params: filters }),
+  getDoctorById: (id) => api.get(`/doctors/${id}/`),
+  updateDoctorProfile: (data) => api.patch('/doctors/profile/', data),
+  getDoctorReviews: (doctorId) => api.get(`/doctors/${doctorId}/reviews/`),
+  createDoctorReview: (doctorId, reviewData) => 
+    api.post(`/doctors/${doctorId}/reviews/create/`, reviewData),
+};
+
+export const appointmentService = {
+  getAppointments: (filters = {}) => api.get('/appointments/', { params: filters }),
+  getAppointmentById: (id) => api.get(`/appointments/${id}/`),
+  createAppointment: (appointmentData) => api.post('/appointments/', appointmentData),
+  updateAppointment: (id, appointmentData) => api.put(`/appointments/${id}/`, appointmentData),
+  cancelAppointment: (id) => api.patch(`/appointments/${id}/`, { status: 'cancelled' }),
+  addNotes: (id, notes) => api.post(`/appointments/${id}/add_notes/`, { notes }),
+  updateStatus: (id, status) => api.post(`/appointments/${id}/update_status/`, { status }),
+};
+
+export const medicalRecordService = {
+  getRecords: (filters = {}) => api.get('/records/', { params: filters }),
+  getRecordById: (id) => api.get(`/records/${id}/`),
+  createRecord: (recordData) => api.post('/records/', recordData),
+  updateRecord: (id, recordData) => api.put(`/records/${id}/`, recordData),
+  deleteRecord: (id) => api.delete(`/records/${id}/`),
+};
+
+export const dashboardService = {
+  getDashboardData: () => api.get('/dashboard/'),
+};
+
+export const symptomService = {
+  getPredefinedSymptoms: (filters = {}) => api.get('/symptoms/predefined/', { params: filters }),
+  getUserSymptoms: (filters = {}) => api.get('/symptoms/user-symptoms/', { params: filters }),
+  getActiveSymptoms: () => api.get('/symptoms/user-symptoms/active/'),
+  createUserSymptom: (symptomData) => api.post('/symptoms/user-symptoms/', symptomData),
+  updateUserSymptom: (id, symptomData) => api.patch(`/symptoms/user-symptoms/${id}/`, symptomData),
+  deleteUserSymptom: (id) => api.delete(`/symptoms/user-symptoms/${id}/`),
+  createSymptomCheck: (checkData) => api.post('/symptoms/checks/', checkData),
+  getSymptomChecks: () => api.get('/symptoms/checks/'),
+  getRecentSymptomCheck: () => api.get('/symptoms/checks/recent/'),
+};
+
+export const diagnosticService = {
+  getDiagnoses: (filters = {}) => api.get('/diagnostics/diagnoses/', { params: filters }),
+  getDiagnosisById: (id) => api.get(`/diagnostics/diagnoses/${id}/`),
+  createDiagnosis: (diagnosisData) => api.post('/diagnostics/diagnoses/', diagnosisData),
+  updateDiagnosis: (id, diagnosisData) => api.patch(`/diagnostics/diagnoses/${id}/`, diagnosisData),
+  deleteDiagnosis: (id) => api.delete(`/diagnostics/diagnoses/${id}/`),
+  resolveDiagnosis: (id) => api.post(`/diagnostics/diagnoses/${id}/resolve/`),
+  markChronic: (id) => api.post(`/diagnostics/diagnoses/${id}/mark_chronic/`),
+  generateTreatment: (id) => api.post(`/diagnostics/diagnoses/${id}/generate_treatment/`),
+  createDiagnosisFromSymptomCheck: (checkData) => 
+    api.post('/diagnostics/diagnoses/from_symptom_check/', checkData),
+};
+
+export const treatmentService = {
+  getTreatments: (filters = {}) => api.get('/diagnostics/treatments/', { params: filters }),
+  getTreatmentById: (id) => api.get(`/diagnostics/treatments/${id}/`),
+  createTreatment: (treatmentData) => api.post('/diagnostics/treatments/', treatmentData),
+  updateTreatment: (id, treatmentData) => api.patch(`/diagnostics/treatments/${id}/`, treatmentData),
+  deleteTreatment: (id) => api.delete(`/diagnostics/treatments/${id}/`),
+  completeTreatment: (id) => api.post(`/diagnostics/treatments/${id}/complete/`),
+  discontinueTreatment: (id) => api.post(`/diagnostics/treatments/${id}/discontinue/`),
+  rateTreatment: (id, ratingData) => api.post(`/diagnostics/treatments/${id}/rate/`, ratingData),
+};
+
+export const healthInsightService = {
+  getInsights: (filters = {}) => api.get('/health-insights/insights/', { params: filters }),
+  generateInsights: () => api.post('/health-insights/insights/generate/'),
+  markInsightAsRead: (id) => api.post(`/health-insights/insights/${id}/mark_as_read/`),
+  getHealthGoals: (filters = {}) => api.get('/health-insights/goals/', { params: filters }),
+  getActiveGoals: () => api.get('/health-insights/goals/active/'),
+  createHealthGoal: (goalData) => api.post('/health-insights/goals/', goalData),
+  updateHealthGoal: (id, goalData) => api.patch(`/health-insights/goals/${id}/`, goalData),
+  completeHealthGoal: (id) => api.post(`/health-insights/goals/${id}/complete/`),
+  abandonHealthGoal: (id) => api.post(`/health-insights/goals/${id}/abandon/`),
+  getHealthMetrics: (filters = {}) => api.get('/health-insights/metrics/', { params: filters }),
+  getLatestMetrics: () => api.get('/health-insights/metrics/latest/'),
+  createHealthMetric: (metricData) => api.post('/health-insights/metrics/', metricData),
+  getRecommendations: (filters = {}) => api.get('/health-insights/recommendations/', { params: filters }),
+  completeRecommendation: (id) => api.post(`/health-insights/recommendations/${id}/complete/`),
+  dismissRecommendation: (id) => api.post(`/health-insights/recommendations/${id}/dismiss/`),
+};
+
+export const reminderService = {
+  getReminders: (filters = {}) => api.get('/reminders/', { params: filters }),
+  getTodayReminders: () => api.get('/reminders/today/'),
+  getMedicationReminders: () => api.get('/reminders/medications/'),
+  createReminder: (reminderData) => api.post('/reminders/', reminderData),
+  updateReminder: (id, reminderData) => api.patch(`/reminders/${id}/`, reminderData),
+  deleteReminder: (id) => api.delete(`/reminders/${id}/`),
+  getReminderLogs: () => api.get('/reminders/logs/'),
+  updateReminderLogStatus: (id, status) => 
+    api.patch(`/reminders/logs/${id}/update_status/`, { status }),
+};
+
+export const emergencyService = {
+  getEmergencyContacts: () => api.get('/emergency/contacts/'),
+  getPrimaryContact: () => api.get('/emergency/contacts/primary/'),
+  createEmergencyContact: (contactData) => api.post('/emergency/contacts/', contactData),
+  updateEmergencyContact: (id, contactData) => api.patch(`/emergency/contacts/${id}/`, contactData),
+  deleteEmergencyContact: (id) => api.delete(`/emergency/contacts/${id}/`),
+  getEmergencyAlerts: () => api.get('/emergency/alerts/'),
+  getActiveAlerts: () => api.get('/emergency/alerts/active/'),
+  createEmergencyAlert: (alertData) => api.post('/emergency/alerts/', alertData),
+  resolveAlert: (id) => api.post(`/emergency/alerts/${id}/resolve/`),
+  markFalseAlarm: (id) => api.post(`/emergency/alerts/${id}/false_alarm/`),
+};
+
+export default api;
+
+app/screens/LoginScreen.js
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import { useAuth } from '../contexts/AuthContext';
+import Screen from '../components/Screen';
+import Input from '../components/Input';
+import Button from '../components/Button';
+import { COLORS, SPACING } from '../theme/global';
+
+const LoginScreen = ({ navigation }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [errors, setErrors] = useState({});
+  const { login, isLoading, error } = useAuth();
+
+  const validateForm = () => {
+    const newErrors = {};
+    if (!email) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(email)) {
+      newErrors.email = 'Email is invalid';
+    }
+    if (!password) {
+      newErrors.password = 'Password is required';
+    } else if (password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleLogin = async () => {
+    if (validateForm()) {
+      try {
+        await login(email, password);
+      } catch (err) {
+        Alert.alert('Login Failed', err.message);
+      }
+    }
+  };
+
+  return (
+    <Screen>
+      <StatusBar style="dark" />
+      <View style={styles.backButtonContainer}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Feather name="arrow-left" size={24} color={COLORS.text} />
+        </TouchableOpacity>
+      </View>
+      <View style={styles.headerContainer}>
+        <Text style={styles.title}>Welcome Back!</Text>
+        <Text style={styles.subtitle}>
+          Sign in to your account to continue
+        </Text>
+      </View>
+      <View style={styles.formContainer}>
+        <Input
+          label="Email"
+          value={email}
+          onChangeText={setEmail}
+          placeholder="Enter your email"
+          keyboardType="email-address"
+          error={errors.email}
+          leftIcon={<Feather name="mail" size={20} color={COLORS.muted} />}
+        />
+        <Input
+          label="Password"
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Enter your password"
+          secureTextEntry
+          error={errors.password}
+          leftIcon={<Feather name="lock" size={20} color={COLORS.muted} />}
+        />
+        <TouchableOpacity 
+          onPress={() => navigation.navigate('ForgotPassword')}
+          style={styles.forgotPasswordButton}
+        >
+          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+        </TouchableOpacity>
+        {error && (
+          <Text style={styles.errorText}>{error}</Text>
+        )}
+        <Button
+          title="Sign In"
+          onPress={handleLogin}
+          loading={isLoading}
+          style={styles.button}
+        />
+      </View>
+      <View style={styles.footerContainer}>
+        <Text style={styles.footerText}>Don't have an account?</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+          <Text style={styles.signUpText}>Sign Up</Text>
+        </TouchableOpacity>
+      </View>
+    </Screen>
+  );
+};
+
+const styles = StyleSheet.create({
+  backButtonContainer: {
+    marginBottom: SPACING.md,
+  },
+  backButton: {
+    padding: SPACING.xs,
+  },
+  headerContainer: {
+    marginBottom: SPACING.xl,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: SPACING.xs,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: COLORS.muted,
+  },
+  formContainer: {
+    marginBottom: SPACING.xl,
+  },
+  forgotPasswordButton: {
+    alignSelf: 'flex-end',
+    marginBottom: SPACING.md,
+  },
+  forgotPasswordText: {
+    color: COLORS.primary,
+    fontSize: 14,
+  },
+  button: {
+    marginTop: SPACING.md,
+  },
+  errorText: {
+    color: COLORS.error,
+    marginBottom: SPACING.md,
+    fontSize: 14,
+  },
+  footerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 'auto',
+  },
+  footerText: {
+    color: COLORS.muted,
+    marginRight: SPACING.xs,
+  },
+  signUpText: {
+    color: COLORS.primary,
+    fontWeight: 'bold',
+  },
+});
+
+app/screens/RegisterScreen.js
+import React, { useState } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Alert,
+  TouchableOpacity,
+  ScrollView
+} from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import { useAuth } from '../contexts/AuthContext';
+import Screen from '../components/Screen';
+import Input from '../components/Input';
+import Button from '../components/Button';
+import { COLORS, SPACING } from '../theme/global';
+
+const RegisterScreen = ({ navigation }) => {
+  const [formData, setFormData] = useState({
+    email: '',
+    username: '',
+    password: '',
+    confirmPassword: '',
+    fullName: '',
+    age: '',
+    gender: '',
+  });
+  const [errors, setErrors] = useState({});
+  const { register, isLoading } = useAuth();
+
+  const handleChange = (key, value) => {
+    setFormData({
+      ...formData,
+      [key]: value,
+    });
+    // Clear error when typing
+    if (errors[key]) {
+      setErrors({
+        ...errors,
+        [key]: null,
+      });
+    }
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+    
+    // Email validation
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Email is invalid';
+    }
+    
+    // Username validation
+    if (!formData.username) {
+      newErrors.username = 'Username is required';
+    } else if (formData.username.length < 3) {
+      newErrors.username = 'Username must be at least 3 characters';
+    }
+    
+    // Password validation
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters';
+    }
+    
+    // Confirm password
+    if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+    
+    // Name validation
+    if (!formData.fullName) {
+      newErrors.fullName = 'Full name is required';
+    }
+    
+    // Age validation (optional)
+    if (formData.age && (isNaN(formData.age) || parseInt(formData.age) <= 0)) {
+      newErrors.age = 'Please enter a valid age';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleRegister = async () => {
+    if (validateForm()) {
+      try {
+        await register({
+          email: formData.email,
+          username: formData.username,
+          password: formData.password,
+          password_confirmation: formData.confirmPassword,
+          full_name: formData.fullName,
+          age: formData.age ? parseInt(formData.age) : null,
+          gender: formData.gender,
+        });
+      } catch (err) {
+        Alert.alert('Registration Failed', err.message);
+      }
+    }
+  };
+
+  return (
+    <Screen>
+      <StatusBar style="dark" />
+      <View style={styles.backButtonContainer}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Feather name="arrow-left" size={24} color={COLORS.text} />
+        </TouchableOpacity>
+      </View>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.headerContainer}>
+          <Text style={styles.title}>Create Account</Text>
+          <Text style={styles.subtitle}>
+            Sign up to get started with HealthMate
+          </Text>
+        </View>
+        
+        <View style={styles.formContainer}>
+          <Input
+            label="Email"
+            value={formData.email}
+            onChangeText={(text) => handleChange('email', text)}
+            placeholder="Enter your email"
+            keyboardType="email-address"
+            error={errors.email}
+            leftIcon={<Feather name="mail" size={20} color={COLORS.muted} />}
+          />
+          
+          <Input
+            label="Username"
+            value={formData.username}
+            onChangeText={(text) => handleChange('username', text)}
+            placeholder="Choose a username"
+            error={errors.username}
+            leftIcon={<Feather name="user" size={20} color={COLORS.muted} />}
+          />
+          
+          <Input
+            label="Full Name"
+            value={formData.fullName}
+            onChangeText={(text) => handleChange('fullName', text)}
+            placeholder="Enter your full name"
+            error={errors.fullName}
+            leftIcon={<Feather name="user-check" size={20} color={COLORS.muted} />}
+          />
+          
+          <Input
+            label="Password"
+            value={formData.password}
+            onChangeText={(text) => handleChange('password', text)}
+            placeholder="Create a password (min 8 characters)"
+            secureTextEntry
+            error={errors.password}
+            leftIcon={<Feather name="lock" size={20} color={COLORS.muted} />}
+          />
+          
+          <Input
+            label="Confirm Password"
+            value={formData.confirmPassword}
+            onChangeText={(text) => handleChange('confirmPassword', text)}
+            placeholder="Confirm your password"
+            secureTextEntry
+            error={errors.confirmPassword}
+            leftIcon={<Feather name="lock" size={20} color={COLORS.muted} />}
+          />
+          
+          <Input
+            label="Age (Optional)"
+            value={formData.age}
+            onChangeText={(text) => handleChange('age', text)}
+            placeholder="Enter your age"
+            keyboardType="numeric"
+            error={errors.age}
+            leftIcon={<Feather name="calendar" size={20} color={COLORS.muted} />}
+          />
+          
+          <Text style={styles.label}>Gender (Optional)</Text>
+          <View style={styles.genderContainer}>
+            <TouchableOpacity
+              style={[
+                styles.genderOption,
+                formData.gender === 'male' && styles.selectedGender,
+              ]}
+              onPress={() => handleChange('gender', 'male')}
+            >
+              <Text 
+                style={[
+                  styles.genderText,
+                  formData.gender === 'male' && styles.selectedGenderText,
+                ]}
+              >
+                Male
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.genderOption,
+                formData.gender === 'female' && styles.selectedGender,
+              ]}
+              onPress={() => handleChange('gender', 'female')}
+            >
+              <Text 
+                style={[
+                  styles.genderText,
+                  formData.gender === 'female' && styles.selectedGenderText,
+                ]}
+              >
+                Female
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.genderOption,
+                formData.gender === 'other' && styles.selectedGender,
+              ]}
+              onPress={() => handleChange('gender', 'other')}
+            >
+              <Text 
+                style={[
+                  styles.genderText,
+                  formData.gender === 'other' && styles.selectedGenderText,
+                ]}
+              >
+                Other
+              </Text>
+            </TouchableOpacity>
+          </View>
+          
+          <Button
+            title="Sign Up"
+            onPress={handleRegister}
+            loading={isLoading}
+            style={styles.button}
+          />
+        </View>
+        
+        <View style={styles.footerContainer}>
+          <Text style={styles.footerText}>Already have an account?</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+            <Text style={styles.signInText}>Sign In</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </Screen>
+  );
+};
+
+const styles = StyleSheet.create({
+  backButtonContainer: {
+    marginBottom: SPACING.md,
+  },
+  backButton: {
+    padding: SPACING.xs,
+  },
+  headerContainer: {
+    marginBottom: SPACING.lg,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: SPACING.xs,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: COLORS.muted,
+  },
+  formContainer: {
+    marginBottom: SPACING.lg,
+  },
+  label: {
+    fontSize: 14,
+    color: COLORS.text,
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  genderContainer: {
+    flexDirection: 'row',
+    marginBottom: SPACING.lg,
+  },
+  genderOption: {
+    flex: 1,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    marginRight: SPACING.sm,
+    alignItems: 'center',
+  },
+  selectedGender: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary + '20', // 20% opacity
+  },
+  genderText: {
+    color: COLORS.muted,
+  },
+  selectedGenderText: {
+    color: COLORS.primary,
+    fontWeight: '500',
+  },
+  button: {
+    marginTop: SPACING.sm,
+  },
+  footerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: SPACING.lg,
+  },
+  footerText: {
+    color: COLORS.muted,
+    marginRight: SPACING.xs,
+  },
+  signInText: {
+    color: COLORS.primary,
+    fontWeight: 'bold',
+  },
+});
+
+export default RegisterScreen;
+
+app/screens/ForgotPasswordScreen.js
+import React, { useState } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Alert,
+  TouchableOpacity
+} from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import Screen from '../components/Screen';
+import Input from '../components/Input';
+import Button from '../components/Button';
+import { COLORS, SPACING } from '../theme/global';
+
+const ForgotPasswordScreen = ({ navigation }) => {
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const handleResetPassword = async () => {
+    if (!email.trim()) {
+      setError('Please enter your email address');
+      return;
+    }
+
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+
+    setError('');
+    setIsLoading(true);
+
+    try {
+      // In a real app, this would make an API call to request password reset
+      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulating API call
+      
+      setResetSent(true);
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        'Something went wrong. Please try again later.'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Screen>
+      <StatusBar style="dark" />
+      <View style={styles.backButtonContainer}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Feather name="arrow-left" size={24} color={COLORS.text} />
+        </TouchableOpacity>
+      </View>
+      
+      <View style={styles.headerContainer}>
+        <Text style={styles.title}>Forgot Password</Text>
+        
+        {!resetSent ? (
+          <Text style={styles.subtitle}>
+            Enter your email address and we'll send you a link to reset your password.
+          </Text>
+        ) : (
+          <Text style={styles.subtitle}>
+            Password reset instructions have been sent to your email.
+          </Text>
+        )}
+      </View>
+      
+      {!resetSent ? (
+        <View style={styles.formContainer}>
+          <Input
+            label="Email Address"
+            value={email}
+            onChangeText={(text) => {
+              setEmail(text);
+              if (error) setError('');
+            }}
+            placeholder="Enter your email"
+            keyboardType="email-address"
+            error={error}
+            leftIcon={<Feather name="mail" size={20} color={COLORS.muted} />}
+          />
+          
+          <Button
+            title="Reset Password"
+            onPress={handleResetPassword}
+            loading={isLoading}
+            style={styles.button}
+          />
+        </View>
+      ) : (
+        <View style={styles.successContainer}>
+          <View style={styles.iconContainer}>
+            <Feather name="check-circle" size={60} color={COLORS.success} />
+          </View>
+          <Text style={styles.successText}>
+            Check your email for instructions to reset your password.
+          </Text>
+          <Button
+            title="Back to Login"
+            onPress={() => navigation.navigate('Login')}
+            style={styles.button}
+          />
+        </View>
+      )}
+    </Screen>
+  );
+};
+
+const styles = StyleSheet.create({
+  backButtonContainer: {
+    marginBottom: SPACING.md,
+  },
+  backButton: {
+    padding: SPACING.xs,
+  },
+  headerContainer: {
+    marginBottom: SPACING.xl,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: SPACING.xs,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: COLORS.muted,
+  },
+  formContainer: {
+    marginBottom: SPACING.xl,
+  },
+  button: {
+    marginTop: SPACING.lg,
+  },
+  successContainer: {
+    flex: 1,
+    alignItems: 'center',
+    paddingTop: SPACING.xxl,
+  },
+  iconContainer: {
+    marginBottom: SPACING.lg,
+  },
+  successText: {
+    fontSize: 16,
+    color: COLORS.text,
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
+  },
+});
+
+export default ForgotPasswordScreen;
+
+app/components/Screen.js
+import React from 'react';
+import { 
+  View, 
+  StyleSheet, 
+  StatusBar, 
+  SafeAreaView, 
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform
+} from 'react-native';
+import { COLORS } from '../theme/global';
+
+const Screen = ({
+  children,
+  style,
+  scroll = true,
+  keyboardAvoid = true,
+  backgroundColor = COLORS.background,
+  statusBarColor = COLORS.primary,
+  statusBarStyle = 'light-content',
+  edges = ['right', 'left', 'top'],
+  contentContainerStyle,
+  scrollViewProps,
+}) => {
+  const renderContent = () => {
+    if (scroll) {
+      return (
+        <ScrollView
+          style={[styles.scrollView, { backgroundColor }]}
+          contentContainerStyle={[
+            styles.scrollViewContent,
+            contentContainerStyle,
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          {...scrollViewProps}
+        >
+          {children}
+        </ScrollView>
+      );
+    }
+    return (
+      <View style={[styles.innerContainer, { backgroundColor }, style]}>
+        {children}
+      </View>
+    );
+  };
+
+  const renderWithKeyboardAvoid = (content) => {
+    if (keyboardAvoid) {
+      return (
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoid}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+        >
+          {content}
+        </KeyboardAvoidingView>
+      );
+    }
+    return content;
+  };
+
+  return (
+    <SafeAreaView
+      style={[styles.container, { backgroundColor }]}
+      edges={edges}
+    >
+      <StatusBar
+        backgroundColor={statusBarColor}
+        barStyle={statusBarStyle}
+        translucent={false}
+      />
+      {renderWithKeyboardAvoid(renderContent())}
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  innerContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  keyboardAvoid: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollViewContent: {
+    flexGrow: 1,
+    padding: 16,
+  },
+});
+
+export default Screen;
+
+app/components/Input.js
+import React, { useState } from 'react';
+import { 
+  TextInput, 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity 
+} from 'react-native';
+import { COLORS, SHADOWS, SIZES } from '../theme/global';
+import { Feather } from '@expo/vector-icons';
+
+const Input = ({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  secureTextEntry,
+  keyboardType,
+  autoCapitalize = 'none',
+  multiline = false,
+  numberOfLines = 1,
+  error,
+  helperText,
+  leftIcon,
+  rightIcon,
+  containerStyle,
+  labelStyle,
+  inputStyle,
+  disabled = false,
+  ...rest
+}) => {
+  const [isFocused, setIsFocused] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+
+  const handleFocus = () => setIsFocused(true);
+  const handleBlur = () => setIsFocused(false);
+  const togglePasswordVisibility = () => setIsPasswordVisible(!isPasswordVisible);
+
+  const isSecure = secureTextEntry && !isPasswordVisible;
+
+  return (
+    <View style={[styles.container, containerStyle]}>
+      {label && (
+        <Text style={[styles.label, labelStyle]}>
+          {label}
+        </Text>
+      )}
+      <View style={[
+        styles.inputContainer,
+        isFocused && styles.inputFocused,
+        error && styles.inputError,
+        disabled && styles.inputDisabled,
+      ]}>
+        {leftIcon && (
+          <View style={styles.leftIconContainer}>
+            {leftIcon}
+          </View>
+        )}
+        <TextInput
+          style={[
+            styles.input,
+            multiline && styles.multilineInput,
+            inputStyle,
+          ]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={COLORS.muted}
+          secureTextEntry={isSecure}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          multiline={multiline}
+          numberOfLines={multiline ? numberOfLines : 1}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          editable={!disabled}
+          {...rest}
+        />
+        {secureTextEntry && (
+          <TouchableOpacity 
+            style={styles.rightIconContainer} 
+            onPress={togglePasswordVisibility}
+          >
+            <Feather 
+              name={isPasswordVisible ? 'eye-off' : 'eye'} 
+              size={20} 
+              color={COLORS.muted} 
+            />
+          </TouchableOpacity>
+        )}
+        {rightIcon && !secureTextEntry && (
+          <View style={styles.rightIconContainer}>
+            {rightIcon}
+          </View>
+        )}
+      </View>
+      {(error || helperText) && (
+        <Text style={[
+          styles.helperText,
+          error && styles.errorText,
+        ]}>
+          {error || helperText}
+        </Text>
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    color: COLORS.text,
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.card,
+    ...SHADOWS.small,
+  },
+  inputFocused: {
+    borderColor: COLORS.primary,
+  },
+  inputError: {
+    borderColor: COLORS.error,
+  },
+  inputDisabled: {
+    backgroundColor: COLORS.background,
+    borderColor: COLORS.border,
+  },
+  leftIconContainer: {
+    padding: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rightIconContainer: {
+    padding: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  input: {
+    flex: 1,
+    color: COLORS.text,
+    fontSize: SIZES.md,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  multilineInput: {
+    textAlignVertical: 'top',
+    minHeight: 100,
+    paddingTop: 12,
+  },
+  helperText: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginTop: 4,
+  },
+  errorText: {
+    color: COLORS.error,
+  },
+});
+
+export default Input;
+
+app/components/Button.js
+import React from 'react';
+import { TouchableOpacity, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { COLORS, SHADOWS } from '../theme/global';
+
+const Button = ({
+  title,
+  onPress,
+  variant = 'primary',
+  size = 'medium',
+  disabled = false,
+  loading = false,
+  icon = null,
+  style,
+  textStyle,
+  ...props
+}) => {
+  const getButtonStyle = () => {
+    switch (variant) {
+      case 'primary':
+        return {
+          backgroundColor: disabled ? COLORS.muted : COLORS.primary,
+          ...SHADOWS.small,
+        };
+      case 'secondary':
+        return {
+          backgroundColor: 'transparent',
+          borderWidth: 1,
+          borderColor: disabled ? COLORS.muted : COLORS.primary,
+        };
+      case 'outline':
+        return {
+          backgroundColor: 'transparent',
+          borderWidth: 1,
+          borderColor: disabled ? COLORS.muted : COLORS.border,
+        };
+      case 'text':
+        return {
+          backgroundColor: 'transparent',
+        };
+      case 'success':
+        return {
+          backgroundColor: disabled ? COLORS.muted : COLORS.success,
+          ...SHADOWS.small,
+        };
+      case 'danger':
+        return {
+          backgroundColor: disabled ? COLORS.muted : COLORS.error,
+          ...SHADOWS.small,
+        };
+      default:
+        return {
+          backgroundColor: disabled ? COLORS.muted : COLORS.primary,
+          ...SHADOWS.small,
+        };
+    }
+  };
+
+  const getTextColor = () => {
+    switch (variant) {
+      case 'primary':
+      case 'success':
+      case 'danger':
+        return COLORS.card;
+      case 'secondary':
+      case 'outline':
+        return disabled ? COLORS.muted : COLORS.text;
+      case 'text':
+        return disabled ? COLORS.muted : COLORS.primary;
+      default:
+        return COLORS.card;
+    }
+  };
+
+  const getButtonSize = () => {
+    switch (size) {
+      case 'small':
+        return {
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          borderRadius: 6,
+        };
+      case 'medium':
+        return {
+          paddingVertical: 12,
+          paddingHorizontal: 24,
+          borderRadius: 8,
+        };
+      case 'large':
+        return {
+          paddingVertical: 16,
+          paddingHorizontal: 32,
+          borderRadius: 10,
+        };
+      default:
+        return {
+          paddingVertical: 12,
+          paddingHorizontal: 24,
+          borderRadius: 8,
+        };
+    }
+  };
+
+  const getTextSize = () => {
+    switch (size) {
+      case 'small':
+        return {
+          fontSize: 14,
+        };
+      case 'medium':
+        return {
+          fontSize: 16,
+        };
+      case 'large':
+        return {
+          fontSize: 18,
+        };
+      default:
+        return {
+          fontSize: 16,
+        };
+    }
+  };
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled || loading}
+      activeOpacity={0.7}
+      style={[
+        styles.button,
+        getButtonStyle(),
+        getButtonSize(),
+        style,
+      ]}
+      {...props}
+    >
+      {loading ? (
+        <ActivityIndicator 
+          size="small" 
+          color={getTextColor()} 
+        />
+      ) : (
+        <>
+          {icon}
+          <Text
+            style={[
+              styles.text,
+              getTextSize(),
+              { color: getTextColor() },
+              textStyle,
+            ]}
+          >
+            {title}
+          </Text>
+        </>
+      )}
+    </TouchableOpacity>
+  );
+};
+
+const styles = StyleSheet.create({
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  text: {
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+});
+
+export default Button;
+
+app/components/Card.js
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { COLORS, SHADOWS, SPACING } from '../theme/global';
+
+const Card = ({
+  title,
+  subtitle,
+  children,
+  onPress,
+  style,
+  titleStyle,
+  subtitleStyle,
+  contentStyle,
+  elevation = 'small',
+  variant = 'default',
+  ...props
+}) => {
+  const getShadow = () => {
+    switch (elevation) {
+      case 'none':
+        return {};
+      case 'small':
+        return SHADOWS.small;
+      case 'medium':
+        return SHADOWS.medium;
+      case 'large':
+        return SHADOWS.large;
+      default:
+        return SHADOWS.small;
+    }
+  };
+
+  const getCardStyle = () => {
+    switch (variant) {
+      case 'default':
+        return {
+          backgroundColor: COLORS.card,
+          borderColor: COLORS.border,
+        };
+      case 'primary':
+        return {
+          backgroundColor: COLORS.primary,
+          borderColor: COLORS.primary,
+        };
+      case 'success':
+        return {
+          backgroundColor: COLORS.success,
+          borderColor: COLORS.success,
+        };
+      case 'warning':
+        return {
+          backgroundColor: COLORS.warning,
+          borderColor: COLORS.warning,
+        };
+      case 'error':
+        return {
+          backgroundColor: COLORS.error,
+          borderColor: COLORS.error,
+        };
+      case 'outline':
+        return {
+          backgroundColor: COLORS.card,
+          borderColor: COLORS.border,
+          borderWidth: 1,
+        };
+      default:
+        return {
+          backgroundColor: COLORS.card,
+          borderColor: COLORS.border,
+        };
+    }
+  };
+
+  const getTextColor = () => {
+    switch (variant) {
+      case 'primary':
+      case 'success':
+      case 'warning':
+      case 'error':
+        return COLORS.card;
+      default:
+        return COLORS.text;
+    }
+  };
+
+  const SubtitleColor = () => {
+    switch (variant) {
+      case 'primary':
+      case 'success':
+      case 'warning':
+      case 'error':
+        return COLORS.card;
+      default:
+        return COLORS.muted;
+    }
+  };
+
+  const CardComponent = onPress ? TouchableOpacity : View;
+
+  return (
+    <CardComponent
+      style={[
+        styles.card,
+        getShadow(),
+        getCardStyle(),
+        style,
+      ]}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.7 : 1}
+      {...props}
+    >
+      {(title || subtitle) && (
+        <View style={styles.header}>
+          {title && (
+            <Text style={[
+              styles.title,
+              { color: getTextColor() },
+              titleStyle,
+            ]}>
+              {title}
+            </Text>
+          )}
+          {subtitle && (
+            <Text style={[
+              styles.subtitle,
+              { color: SubtitleColor() },
+              subtitleStyle,
+            ]}>
+              {subtitle}
+            </Text>
+          )}
+        </View>
+      )}
+      <View style={[styles.content, contentStyle]}>
+        {children}
+      </View>
+    </CardComponent>
+  );
+};
+
+const styles = StyleSheet.create({
+  card: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginVertical: SPACING.sm,
+  },
+  header: {
+    padding: SPACING.md,
+    paddingBottom: 0,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: SPACING.xs,
+  },
+  subtitle: {
+    fontSize: 14,
+    marginBottom: SPACING.xs,
+  },
+  content: {
+    padding: SPACING.md,
+  },
+});
+
+export default Card;
+
+app/theme/global.js
+export const COLORS = {
+  primary: '#3B82F6',
+  secondary: '#10B981',
+  accent: '#8B5CF6',
+  background: '#F9FAFB',
+  card: '#FFFFFF',
+  text: '#1F2937',
+  border: '#E5E7EB',
+  notification: '#EF4444',
+  muted: '#6B7280',
+  success: '#10B981',
+  warning: '#FBBF24',
+  error: '#EF4444',
+  info: '#3B82F6',
+};
+
+export const FONT = {
+  regular: 'Inter_400Regular',
+  medium: 'Inter_500Medium',
+  semibold: 'Inter_600SemiBold',
+  bold: 'Inter_700Bold',
+};
+
+export const SIZES = {
+  xs: 10,
+  sm: 12,
+  md: 16,
+  lg: 20,
+  xl: 24,
+  xxl: 32,
+};
+
+export const SHADOWS = {
+  small: {
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 2,
+  },
+  medium: {
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 4,
+  },
+  large: {
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.37,
+    shadowRadius: 7.49,
+    elevation: 6,
+  },
+};
+
+export const SPACING = {
+  xs: 4,
+  sm: 8,
+  md: 16,
+  lg: 24,
+  xl: 32,
+  xxl: 48,
+};
+
+export default { COLORS, FONT, SIZES, SHADOWS, SPACING };
+
+app/screens/HomeScreen.js
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { COLORS } from '../theme/global';
+
+const HomeScreen = () => {
+  return (
+    <View style={styles.container}>
+      <Text style={styles.text}>Home Screen</Text>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+  },
+  text: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+});
+
+export default HomeScreen;
+
+app/screens/WelcomeScreen.js
+import React from 'react';
+import { View, Text, StyleSheet, Image } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import Button from '../components/Button';
+import { COLORS, SPACING } from '../theme/global';
+
+const WelcomeScreen = ({ navigation }) => {
+  return (
+    <View style={styles.container}>
+      <StatusBar style="dark" />
+      <View style={styles.logoContainer}>
+        <Image
+          source={require('../../assets/adaptive-icon.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <Text style={styles.title}>HealthMate AI</Text>
+        <Text style={styles.subtitle}>Your personal health assistant</Text>
+      </View>
+
+      <View style={styles.featureContainer}>
+        <FeatureItem 
+          title="AI Doctor Chat"
+          description="Get instant answers to your health concerns"
+          icon="🧠"
+        />
+        <FeatureItem 
+          title="Find Specialists"
+          description="Connect with real doctors when you need them"
+          icon="👨‍⚕️"
+        />
+        <FeatureItem 
+          title="Secure Records"
+          description="Keep your medical history in one place"
+          icon="🔒"
+        />
+      </View>
+
+      <View style={styles.buttonContainer}>
+        <Button 
+          title="Get Started" 
+          onPress={() => navigation.navigate('Onboarding')}
+          style={styles.button} 
+          size="large"
+        />
+        <Button 
+          title="I already have an account" 
+          onPress={() => navigation.navigate('Login')}
+          variant="text"
+          style={styles.secondaryButton}
+        />
+      </View>
+    </View>
+  );
+};
+
+const FeatureItem = ({ title, description, icon }) => (
+  <View style={styles.featureItem}>
+    <Text style={styles.featureIcon}>{icon}</Text>
+    <View style={styles.featureTextContainer}>
+      <Text style={styles.featureTitle}>{title}</Text>
+      <Text style={styles.featureDescription}>{description}</Text>
+    </View>
+  </View>
+);
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    padding: SPACING.lg,
+    justifyContent: 'space-between',
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginTop: SPACING.xxl,
+  },
+  logo: {
+    width: 120,
+    height: 120,
+    marginBottom: SPACING.md,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    marginBottom: SPACING.xs,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: COLORS.muted,
+    textAlign: 'center',
+  },
+  featureContainer: {
+    marginVertical: SPACING.xl,
+  },
+  featureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
+  featureIcon: {
+    fontSize: 32,
+    marginRight: SPACING.md,
+    width: 40,
+  },
+  featureTextContainer: {
+    flex: 1,
+  },
+  featureTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  featureDescription: {
+    fontSize: 14,
+    color: COLORS.muted,
+  },
+  buttonContainer: {
+    marginBottom: SPACING.xl,
+  },
+  button: {
+    marginBottom: SPACING.md,
+  },
+  secondaryButton: {
+    marginBottom: SPACING.md,
+  },
+});
+
+export default WelcomeScreen;
