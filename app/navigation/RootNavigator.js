@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 import AppNavigator from './AppNavigator';
@@ -10,6 +10,25 @@ import { COLORS } from '../theme/global';
 import { useAuth } from '../contexts/AuthContext';
 
 const Stack = createStackNavigator();
+
+// Handle navigation errors
+const handleNavigationError = (error) => {
+  console.error('Navigation error:', error);
+  // You can implement additional error logging here
+};
+
+// Define custom theme with linking configuration
+const MyTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    background: COLORS.background,
+    primary: COLORS.primary,
+    card: COLORS.card,
+    text: COLORS.text,
+    border: COLORS.border,
+  },
+};
 
 const RootNavigator = () => {
   const { user, isLoading } = useAuth();
@@ -44,7 +63,26 @@ const RootNavigator = () => {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer 
+      theme={MyTheme}
+      onStateChange={(state) => {
+        // Optional: Track navigation state changes
+        console.log('New navigation state', state?.routes?.[state.index]?.name);
+      }}
+      onReady={() => {
+        console.log('Navigation container ready');
+      }}
+      onUnhandledAction={(action) => {
+        // Log unhandled actions
+        console.warn('Unhandled navigation action:', action);
+      }}
+      fallback={
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Loading...</Text>
+        </View>
+      }
+      onError={handleNavigationError}
+    >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
           <Stack.Screen name="App" component={AppNavigator} />
@@ -63,6 +101,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: COLORS.background,
   },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+  },
+  errorText: {
+    color: COLORS.text,
+    fontSize: 16,
+    textAlign: 'center',
+  }
 });
 
 export default RootNavigator; 

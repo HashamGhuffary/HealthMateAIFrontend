@@ -61,8 +61,10 @@ export const AuthProvider = ({ children }) => {
       await SecureStore.setItemAsync('auth_token', tokens.access);
       await SecureStore.setItemAsync('refresh_token', tokens.refresh);
       
+      // Set user state to trigger navigation in RootNavigator
       setUser(user);
-      return user;
+      
+      return { user, tokens };
     } catch (error) {
       console.error('Login failed', error);
       const errorMessage = error.response?.data?.detail || 'Login failed. Please check your credentials.';
@@ -85,8 +87,10 @@ export const AuthProvider = ({ children }) => {
       await SecureStore.setItemAsync('auth_token', tokens.access);
       await SecureStore.setItemAsync('refresh_token', tokens.refresh);
       
-      // Make sure to set the user state
+      // Important: Set the user state to trigger navigation change in RootNavigator
+      console.log('Setting user after registration:', user);
       setUser(user);
+      
       return { user, tokens };
     } catch (error) {
       console.error('Registration failed', error);

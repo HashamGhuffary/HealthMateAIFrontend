@@ -3,7 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Feather } from '@expo/vector-icons';
 import { COLORS } from '../theme/global';
-import { Text, StyleSheet } from 'react-native';
+import { Text, StyleSheet, View } from 'react-native';
 
 // Import screens
 import HomeScreen from '../screens/HomeScreen';
@@ -17,7 +17,31 @@ import AppointmentScreen from '../screens/AppointmentScreen';
 import DiagnosisScreen from '../screens/DiagnosisScreen';
 import TreatmentScreen from '../screens/TreatmentScreen';
 
+// Conditionally import HealthGoals and Reminders screens if they exist
+let HealthGoalsScreen = null;
+let RemindersScreen = null;
 
+try {
+  HealthGoalsScreen = require('../screens/HealthGoalsScreen').default;
+} catch (error) {
+  // Create a fallback component if screen doesn't exist
+  HealthGoalsScreen = () => (
+    <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
+      <Text>Health Goals feature coming soon!</Text>
+    </View>
+  );
+}
+
+try {
+  RemindersScreen = require('../screens/RemindersScreen').default;
+} catch (error) {
+  // Create a fallback component if screen doesn't exist
+  RemindersScreen = () => (
+    <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
+      <Text>Reminders feature coming soon!</Text>
+    </View>
+  );
+}
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -36,8 +60,8 @@ const HomeStack = () => {
       />
       <Stack.Screen name="Diagnosis" component={DiagnosisScreen} />
       <Stack.Screen name="Treatment" component={TreatmentScreen} />
-      <Stack.Screen name="HealthGoals" component={HealthGoalsScreen} />
-      <Stack.Screen name="Reminders" component={RemindersScreen} />
+      {HealthGoalsScreen && <Stack.Screen name="HealthGoals" component={HealthGoalsScreen} />}
+      {RemindersScreen && <Stack.Screen name="Reminders" component={RemindersScreen} />}
     </Stack.Navigator>
   );
 };
@@ -94,8 +118,8 @@ const ProfileStack = () => {
       }}
     >
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
-      {/* <Stack.Screen name="HealthGoals" component={HealthGoalsScreen} /> */}
-      {/* <Stack.Screen name="Reminders" component={RemindersScreen} /> */}
+      {HealthGoalsScreen && <Stack.Screen name="HealthGoals" component={HealthGoalsScreen} />}
+      {RemindersScreen && <Stack.Screen name="Reminders" component={RemindersScreen} />}
     </Stack.Navigator>
   );
 };

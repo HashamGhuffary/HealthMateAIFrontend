@@ -104,10 +104,14 @@ const RegisterScreen = ({ navigation }) => {
         };
 
         // Use the register function from AuthContext
-        await register(userData);
+        const result = await register(userData);
+        console.log('Registration successful:', result);
         
-        // No need to manually navigate - the AuthContext user state change
-        // will trigger RootNavigator to switch to the App stack automatically
+        // The AuthContext will set the user state which will trigger
+        // RootNavigator to switch to App navigator automatically
+        
+        // No navigation calls needed here as RootNavigator handles it
+        
       } catch (error) {
         console.error('Registration error:', error);
         let errorMessage = 'An error occurred during registration.';
